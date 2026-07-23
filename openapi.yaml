@@ -1,0 +1,620 @@
+openapi: 3.0.3
+info:
+  title: Sendgo API
+  description: |
+    **Sendgo** 알림 전송 API
+    카카오 알림톡(Alimtalk), 친구톡(Friendtalk), SMS/LMS/MMS 전송을 지원합니다.
+
+    ## 인증 방법
+    1. **토큰 발급**: `accessKey:secretKey`를 Base64 인코딩하여 Basic 인증으로 토큰 요청
+    2. **API 호출**: 발급받은 토큰으로 Bearer 인증
+       - **v1**: `Authorization: Bearer base64(token)`
+       - **v2**: `Authorization: Bearer token`
+
+    토큰은 발급 후 약 **50분** 동안 유효합니다.
+  version: "2.0"
+  contact:
+    name: Sendgo 개발팀
+    url: https://sendgo.io
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.sendgo.io/api
+    description: Sendgo API 서버
+
+tags:
+  - name: 인증
+    description: 토큰 발급
+  - name: 알림톡
+    description: 카카오 알림톡 (Alimtalk) 전송
+  - name: 친구톡
+    description: 카카오 친구톡 (Friendtalk) 전송
+  - name: 문자
+    description: SMS / LMS / MMS 전송
+
+paths:
+  /{version}/token:
+    post:
+      tags: [인증]
+      summary: 액세스 토큰 발급
+      description: |
+        `accessKey:secretKey`를 Base64로 인코딩하여 Basic 인증 헤더로 전달하면 Bearer 토큰을 발급합니다.
+        토큰 유효시간은 약 **50분**입니다.
+      operationId: issueToken
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: 토큰 발급 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                data:
+                  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /{version}/notices/send:
+    post:
+      tags: [알림톡]
+      summary: 카카오 알림톡 전송
+      description: |
+        사전에 Sendgo 콘솔에서 승인받은 템플릿 코드를 사용하여 알림톡을 전송합니다.
+        `replaceSms: "Y"` 설정 시, 알림톡 전송 실패 시 자동으로 SMS 대체 발송합니다.
+      operationId: sendAlimtalk
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlimtalkRequest'
+            examples:
+              basicSend:
+                summary: 기본 즉시 발송
+                value:
+                  at: null
+                  scheduleType: "DIRECTLY"
+                  templateCode: "ORDER_CONFIRM_001"
+                  replaceSms: "N"
+                  smsSubject: null
+                  smsContent: null
+                  contacts:
+                    - contact: "01012345678"
+                      name: "홍길동"
+                      var1: "ORD-20260101-001"
+                      var2: "스프링 입문서"
+                      var3: "29,000원"
+                  kakaoSenderKey: "your_kakao_sender_key"
+                  senderKey: "your_sms_sender_key"
+              withFallback:
+                summary: SMS 대체 발송 활성화
+                value:
+                  at: null
+                  scheduleType: "DIRECTLY"
+                  templateCode: "DELIVERY_001"
+                  replaceSms: "Y"
+                  smsSubject: "[배송 시작 안내]"
+                  smsContent: "주문하신 상품이 출고되었습니다.\n송장번호: #{var2}"
+                  contacts:
+                    - contact: "01012345678"
+                      name: "홍길동"
+                      var1: "ORD-001"
+                      var2: "1234567890"
+                  kakaoSenderKey: "your_kakao_sender_key"
+                  senderKey: "your_sms_sender_key"
+              scheduledSend:
+                summary: 예약 발송
+                value:
+                  at: "2026-04-01 09:00:00"
+                  scheduleType: "SCHEDULED"
+                  templateCode: "PROMO_001"
+                  replaceSms: "N"
+                  contacts:
+                    - contact: "01012345678"
+                      var1: "봄맞이 30% 할인"
+                  kakaoSenderKey: "your_kakao_sender_key"
+                  senderKey: "your_sms_sender_key"
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /{version}/friends/send:
+    post:
+      tags: [친구톡]
+      summary: 카카오 친구톡 전송
+      description: |
+        카카오 채널 친구에게 친구톡을 전송합니다.
+        이미지, 버튼, 광고성 메시지 등 다양한 형태를 지원합니다.
+      operationId: sendFriendtalk
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendtalkRequest'
+            examples:
+              basicText:
+                summary: 기본 텍스트 친구톡
+                value:
+                  at: null
+                  scheduleType: "DIRECTLY"
+                  messageType: "FT"
+                  content: "안녕하세요! 봄맞이 30% 할인 이벤트가 시작되었습니다."
+                  buttons: []
+                  image: null
+                  imageUrl: null
+                  imageLink: null
+                  adFlag: "Y"
+                  wide: "N"
+                  adult: "N"
+                  header: null
+                  replaceSms: "N"
+                  contacts:
+                    - contact: "01012345678"
+                  kakaoSenderKey: "your_kakao_sender_key"
+                  senderKey: "your_sms_sender_key"
+              imageType:
+                summary: 이미지 포함 친구톡
+                value:
+                  messageType: "FI"
+                  content: "이번 주 특가 상품을 확인하세요!"
+                  imageUrl: "https://example.com/event-banner.jpg"
+                  imageLink: "https://example.com/event"
+                  adFlag: "Y"
+                  wide: "N"
+                  adult: "N"
+                  replaceSms: "N"
+                  scheduleType: "DIRECTLY"
+                  contacts:
+                    - contact: "01012345678"
+                  kakaoSenderKey: "your_kakao_sender_key"
+                  senderKey: "your_sms_sender_key"
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /{version}/messages/send:
+    post:
+      tags: [문자]
+      summary: SMS / LMS / MMS 전송
+      description: |
+        SMS(단문, 90자), LMS(장문, 2,000자), MMS(멀티미디어) 문자를 전송합니다.
+        `messageType` 필드로 전송 유형을 구분합니다.
+      operationId: sendMessage
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmsRequest'
+            examples:
+              sms:
+                summary: SMS (단문)
+                value:
+                  campaignType: "MESSAGE"
+                  messageType: "SMS"
+                  scheduleType: "DIRECTLY"
+                  at: null
+                  subject: null
+                  content: "인증번호: 123456"
+                  files: []
+                  contacts:
+                    - contact: "01012345678"
+                  senderKey: "your_sms_sender_key"
+              lms:
+                summary: LMS (장문)
+                value:
+                  campaignType: "MESSAGE"
+                  messageType: "LMS"
+                  scheduleType: "DIRECTLY"
+                  at: null
+                  subject: "[공지] 서비스 점검 안내"
+                  content: "안녕하세요.\n\n서비스 점검이 예정되어 있습니다.\n일시: 2026-04-01 02:00 ~ 06:00"
+                  files: []
+                  contacts:
+                    - contact: "01012345678"
+                  senderKey: "your_sms_sender_key"
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: "`accessKey:secretKey`를 Base64로 인코딩 (토큰 발급 시 사용)"
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        발급받은 토큰 사용
+        - v1: `Bearer base64(token)`
+        - v2: `Bearer token`
+
+  parameters:
+    ApiVersion:
+      name: version
+      in: path
+      required: true
+      description: API 버전
+      schema:
+        type: string
+        enum: [v1, v2]
+        default: v1
+      example: v2
+
+  schemas:
+    Contact:
+      type: object
+      required: [contact]
+      description: 수신자 정보
+      properties:
+        contact:
+          type: string
+          description: 수신자 전화번호 (필수)
+          example: "01012345678"
+        name:
+          type: string
+          description: 수신자 이름 (선택)
+          example: "홍길동"
+        var1:
+          type: string
+          description: 템플릿 변수 #{var1}
+          example: "ORD-20260101-001"
+        var2:
+          type: string
+          description: 템플릿 변수 #{var2}
+        var3:
+          type: string
+          description: 템플릿 변수 #{var3}
+        var4:
+          type: string
+          description: 템플릿 변수 #{var4}
+        var5:
+          type: string
+          description: 템플릿 변수 #{var5}
+        var6:
+          type: string
+          description: 템플릿 변수 #{var6}
+        var7:
+          type: string
+          description: 템플릿 변수 #{var7}
+        var8:
+          type: string
+          description: 템플릿 변수 #{var8}
+
+    AlimtalkRequest:
+      type: object
+      required: [templateCode, contacts, kakaoSenderKey, senderKey]
+      description: 카카오 알림톡 전송 요청
+      properties:
+        at:
+          type: string
+          nullable: true
+          description: "발송 예약 시각 (null = 즉시). 형식: Y-m-d H:i:s"
+          example: "2026-04-01 09:00:00"
+        scheduleType:
+          type: string
+          enum: [DIRECTLY, SCHEDULED]
+          default: DIRECTLY
+          description: "발송 유형 (DIRECTLY: 즉시, SCHEDULED: 예약)"
+        templateCode:
+          type: string
+          description: Sendgo 콘솔에서 승인받은 알림톡 템플릿 코드 (필수)
+          example: "ORDER_CONFIRM_001"
+        replaceSms:
+          type: string
+          enum: ["Y", "N"]
+          default: "N"
+          description: "알림톡 실패 시 SMS 대체 발송 여부 (Y: 활성화)"
+        smsSubject:
+          type: string
+          nullable: true
+          description: 대체 SMS 제목 (replaceSms=Y 일 때 필수)
+          example: "[배송 안내]"
+        smsContent:
+          type: string
+          nullable: true
+          description: 대체 SMS 내용 (replaceSms=Y 일 때 필수)
+        contacts:
+          type: array
+          description: 수신자 목록 (최소 1명)
+          items:
+            $ref: '#/components/schemas/Contact'
+        kakaoSenderKey:
+          type: string
+          description: 카카오 발신프로필 키
+          example: "your_kakao_sender_key"
+        senderKey:
+          type: string
+          description: SMS 발신자 키 (대체 발송 시 사용)
+          example: "your_sms_sender_key"
+
+    FriendtalkRequest:
+      type: object
+      required: [content, contacts, kakaoSenderKey, senderKey]
+      description: 카카오 친구톡 전송 요청
+      properties:
+        at:
+          type: string
+          nullable: true
+          description: "발송 예약 시각 (null = 즉시)"
+        scheduleType:
+          type: string
+          enum: [DIRECTLY, SCHEDULED]
+          default: DIRECTLY
+          description: 발송 유형
+        messageType:
+          type: string
+          enum: [FT, FI, FW, FL, FM, FC, FA, FP]
+          default: FT
+          description: |
+            메시지 유형
+            - FT: 기본 텍스트
+            - FI: 이미지형
+            - FW: 와이드 이미지
+            - FL: 리스트형
+            - FM: 이미지+텍스트
+            - FC: 캐러셀
+            - FA: 아이템 리스트
+            - FP: 프리미엄 동영상
+        content:
+          type: string
+          description: 메시지 본문 (필수)
+          example: "안녕하세요! 봄맞이 30% 할인 이벤트가 시작되었습니다."
+        buttons:
+          type: array
+          description: 버튼 목록
+          items:
+            type: object
+        image:
+          nullable: true
+          description: 이미지 파일 (imageUrl과 둘 중 하나)
+        imageUrl:
+          type: string
+          nullable: true
+          description: 이미지 URL (image와 둘 중 하나)
+          example: "https://example.com/banner.jpg"
+        imageLink:
+          type: string
+          nullable: true
+          description: 이미지 클릭 시 이동할 URL
+        adFlag:
+          type: string
+          enum: ["Y", "N"]
+          default: "Y"
+          description: "광고성 메시지 여부"
+        wide:
+          type: string
+          enum: ["Y", "N"]
+          default: "N"
+          description: "와이드 이미지 사용 여부"
+        adult:
+          type: string
+          enum: ["Y", "N"]
+          default: "N"
+          description: "성인 콘텐츠 여부"
+        header:
+          type: string
+          nullable: true
+          description: 헤더 텍스트
+        replaceSms:
+          type: string
+          enum: ["Y", "N"]
+          default: "N"
+          description: SMS 대체 발송 여부
+        smsSubject:
+          type: string
+          nullable: true
+          description: 대체 SMS 제목
+        smsContent:
+          type: string
+          nullable: true
+          description: 대체 SMS 내용
+        contacts:
+          type: array
+          description: 수신자 목록
+          items:
+            $ref: '#/components/schemas/Contact'
+        kakaoSenderKey:
+          type: string
+          description: 카카오 발신프로필 키
+        senderKey:
+          type: string
+          description: SMS 발신자 키
+
+    SmsRequest:
+      type: object
+      required: [content, contacts, senderKey]
+      description: SMS / LMS / MMS 전송 요청
+      properties:
+        campaignType:
+          type: string
+          enum: [MESSAGE, ADVERTISE, ELECTION]
+          default: MESSAGE
+          description: |
+            캠페인 유형
+            - MESSAGE: 일반 메시지
+            - ADVERTISE: 광고성 메시지
+            - ELECTION: 선거 관련
+        messageType:
+          type: string
+          enum: [SMS, LMS, MMS]
+          default: SMS
+          description: |
+            메시지 유형
+            - SMS: 단문 (90자 이하)
+            - LMS: 장문 (2,000자 이하)
+            - MMS: 멀티미디어
+        scheduleType:
+          type: string
+          enum: [DIRECTLY, SCHEDULED]
+          default: DIRECTLY
+          description: 발송 유형
+        at:
+          type: string
+          nullable: true
+          description: 발송 예약 시각 (null = 즉시)
+        subject:
+          type: string
+          nullable: true
+          description: 메시지 제목 (LMS/MMS에서 사용)
+          example: "[공지사항]"
+        content:
+          type: string
+          description: 메시지 본문 (필수)
+          example: "인증번호: 123456"
+        files:
+          type: array
+          description: 첨부 파일 목록 (MMS)
+          items:
+            type: object
+        contacts:
+          type: array
+          description: 수신자 목록
+          items:
+            $ref: '#/components/schemas/Contact'
+        senderKey:
+          type: string
+          description: SMS 발신자 키
+          example: "your_sms_sender_key"
+
+    TokenResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+              description: API 액세스 토큰 (유효시간 약 50분)
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          description: 전송 결과 데이터
+
+    ErrorResponse:
+      type: object
+      description: API 오류 응답 (v2에서 에러 코드 세분화)
+      properties:
+        code:
+          type: string
+          description: 에러 코드
+          example: "INVALID_TEMPLATE_CODE"
+        message:
+          type: string
+          description: 에러 메시지
+          example: "존재하지 않는 템플릿 코드입니다."
+
+  responses:
+    SuccessResponse:
+      description: 전송 성공
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+
+    BadRequest:
+      description: 잘못된 요청 (파라미터 누락/형식 오류)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            emptyContacts:
+              value:
+                code: "EMPTY_CONTACTS"
+                message: "수신자 정보가 비어있습니다."
+            invalidTemplate:
+              value:
+                code: "INVALID_TEMPLATE_CODE"
+                message: "존재하지 않는 템플릿 코드입니다."
+
+    Unauthorized:
+      description: 인증 실패
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidKey:
+              value:
+                code: "INVALID_ACCESS_KEY"
+                message: "유효하지 않은 액세스 키입니다."
+
+    Forbidden:
+      description: 권한 없음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notApproved:
+              value:
+                code: "ACCESS_KEY_NOT_APPROVED"
+                message: "승인되지 않은 앱입니다."
+            ipNotAllowed:
+              value:
+                code: "IP_NOT_ALLOWED"
+                message: "허용되지 않은 IP입니다."
+
+    PaymentRequired:
+      description: 크레딧 부족
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "PAYMENT_REQUIRED"
+            message: "크레딧이 부족합니다."
