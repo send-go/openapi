@@ -63,6 +63,14 @@ SDK는 토큰 캐싱과 만료 시 자동 재발급을 처리해주지만, 생�
 npx @redocly/cli lint openapi.yaml
 ```
 
+## 변경 사항
+
+### 1.1.0 (2026-08-11)
+
+- 짧은 URL 5개 경로 추가
+- 토큰 유효시간을 '약 50분' → '24시간' 으로 수정 (실제 구현은 `Carbon::now()->addDay()`)
+- paths 에서 쓰이는데 선언되지 않았던 `브랜드메시지` 태그 선언 추가
+
 ## 라이선스
 
 MIT © Sendgo — https://sendgo.io
