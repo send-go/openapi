@@ -3,7 +3,13 @@ info:
   title: Sendgo API
   description: |
     **Sendgo** 알림 전송 API
-    카카오 알림톡(Alimtalk), 친구톡(Friendtalk), SMS/LMS/MMS 전송을 지원합니다.
+    카카오 알림톡(Alimtalk), 브랜드메시지(Brand Message), SMS/LMS/MMS 전송을 지원합니다.
+
+    > **친구톡은 2025-12-31 종료되었습니다.** 2026-01-01 부터 친구톡 발송 요청은
+    > 카카오 측에서 브랜드메시지(자유형)로 자동 대체 발송됩니다.
+    > `/{version}/friends/send` 는 자유 본문 타입(`FT`/`FI`/`FW`)의 발송 경로로
+    > 계속 유지되며, 템플릿 기반 리치 타입·비친구 타게팅·동보 발송은
+    > `/{version}/brand-messages/send` 를 사용하세요.
 
     ## 인증 방법
     1. **토큰 발급**: `accessKey:secretKey`를 Base64 인코딩하여 Basic 인증으로 토큰 요청
@@ -30,7 +36,10 @@ tags:
   - name: 알림톡
     description: 카카오 알림톡 (Alimtalk) 전송
   - name: 친구톡
-    description: 카카오 친구톡 (Friendtalk) 전송 — 2026년 종료 예정, 브랜드메시지로 전환하세요
+    description: >-
+      카카오 친구톡 (Friendtalk) 전송 — **2025-12-31 종료됨(Deprecated)**.
+      2026-01-01 부터 카카오 측에서 브랜드메시지(자유형)로 자동 대체 발송됩니다.
+      신규 연동은 브랜드메시지를 사용하세요.
   - name: 브랜드메시지
     description: 카카오 브랜드메시지 (Brand Message) 전송 — 친구톡의 후속 채널. v2 전용
   - name: 문자
@@ -145,10 +154,29 @@ paths:
   /{version}/friends/send:
     post:
       tags: [친구톡]
-      summary: 카카오 친구톡 전송
+      summary: 카카오 친구톡 전송 (Deprecated)
+      deprecated: true
       description: |
         카카오 채널 친구에게 친구톡을 전송합니다.
         이미지, 버튼, 광고성 메시지 등 다양한 형태를 지원합니다.
+
+        > **Deprecated — 친구톡은 카카오 정책에 따라 2025-12-31 종료되었습니다.**
+        > 2026-01-01 부터 이 엔드포인트로 들어온 발송 요청은 카카오 측에서
+        > **브랜드메시지(자유형)** 로 자동 대체 발송됩니다. 호출은 계속 성공하지만
+        > 실제로 나가는 것은 브랜드메시지입니다.
+        >
+        > **엔드포인트는 제거되지 않습니다.** 자유 본문 타입(`FT`/`FI`/`FW`)을 개별
+        > 수신자에게 보내는 경로는 현재 이 엔드포인트뿐입니다 —
+        > `/{version}/brand-messages/send` 는 같은 조합에 대해 `NOT_A_BRAND_MESSAGE`
+        > 를 반환합니다.
+        >
+        > 다음의 경우에는 `/{version}/brand-messages/send` 를 사용하세요.
+        > - 템플릿 기반 리치 타입 (`FL`/`FC`/`FM`/`FP`/`FA`)
+        > - 채널 친구가 **아닌** 수신자 (`targeting` = `N` / `I`)
+        > - 수신 동의한 전체 채널 친구 동보 (`targeting` = `F`)
+        >
+        > 대체 발송 자체를 원하지 않으면 친구톡 발송을 시도하지 말고
+        > 문자(`/{version}/messages/send`)로 요청하세요.
       operationId: sendFriendtalk
       parameters:
         - $ref: '#/components/parameters/ApiVersion'
@@ -725,7 +753,10 @@ components:
     FriendtalkRequest:
       type: object
       required: [content, contacts, kakaoSenderKey, senderKey]
-      description: 카카오 친구톡 전송 요청
+      description: >-
+        카카오 친구톡 전송 요청. 친구톡은 2025-12-31 종료되어 카카오 측에서
+        브랜드메시지(자유형)로 자동 대체 발송됩니다. 이 스키마 자체는
+        `BrandMessageRequest` 의 베이스로도 계속 사용되므로 유지됩니다.
       properties:
         at:
           type: string

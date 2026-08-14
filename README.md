@@ -12,7 +12,7 @@ Sendgo API의 OpenAPI 3.0.3 스펙입니다. 코드 생성기, API 클라이언�
 | --- | --- | --- |
 | 토큰 발급 | `POST` | `/{version}/token` |
 | 알림톡 (Alimtalk) | `POST` | `/{version}/notices/send` |
-| 친구톡 (Friendtalk) | `POST` | `/{version}/friends/send` |
+| 친구톡 (Friendtalk) — **Deprecated** | `POST` | `/{version}/friends/send` |
 | 브랜드메시지 발송 | `POST` | `/{version}/brand-messages/send` |
 | 브랜드메시지 캠페인 목록 | `GET` | `/{version}/brand-messages` |
 | 브랜드메시지 캠페인 상세 | `GET` | `/{version}/brand-messages/{campaign_id}` |
@@ -20,7 +20,23 @@ Sendgo API의 OpenAPI 3.0.3 스펙입니다. 코드 생성기, API 클라이언�
 
 `{version}` 은 `v1` 또는 `v2` 입니다. 브랜드메시지는 **v2 전용**입니다.
 
-친구톡은 카카오의 정책에 따라 종료될 예정이므로 신규 연동은 브랜드메시지를 사용하세요.
+> ⚠️ **친구톡은 카카오 정책에 따라 2025-12-31 종료되었습니다.**
+> 2026-01-01 부터 `/{version}/friends/send` 로 들어온 요청은 카카오 측에서
+> **브랜드메시지(자유형)** 로 자동 대체 발송됩니다. 호출은 계속 성공하지만 실제로
+> 나가는 것은 브랜드메시지입니다.
+>
+> 엔드포인트는 제거되지 않습니다 — 자유 본문 타입(`FT`/`FI`/`FW`)을 개별 수신자에게
+> 보내는 경로는 현재 이것뿐이며, `/{version}/brand-messages/send` 는 같은 조합에 대해
+> `NOT_A_BRAND_MESSAGE` 를 반환합니다.
+>
+> 다음의 경우에는 브랜드메시지를 사용하세요.
+> - 템플릿 기반 리치 타입 (`FL`/`FC`/`FM`/`FP`/`FA`)
+> - 채널 친구가 **아닌** 수신자 (`targeting` = `N` / `I`)
+> - 수신 동의한 전체 채널 친구 동보 (`targeting` = `F`)
+>
+> 메시지 타입은 1:1 대응됩니다 — `FT`→`BT`, `FI`→`BI`, `FW`→`BW`, `FL`→`BL`,
+> `FC`→`BC`, `FM`→`BM`, `FP`→`BP`, `FA`→`BA`. 변환은 서버가 처리하므로 요청에는
+> 친구톡 코드를 그대로 넘깁니다.
 
 ## 인증
 
