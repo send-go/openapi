@@ -4,9 +4,11 @@ Sendgo API의 OpenAPI 3.0.3 스펙입니다. 코드 생성기, API 클라이언�
 그대로 넣어 쓸 수 있는 기계 판독용 계약입니다.
 
 - 최신 스펙: <https://sendgo.io/openapi.yaml>
-- 서버: `https://api.sendgo.io/api`
+- 서버: `https://sendgo.io/api` (별칭 `https://api.sendgo.io/api`)
 
 ## 엔드포인트
+
+### 발송
 
 | 채널 | 메서드 | 경로 |
 | --- | --- | --- |
@@ -17,8 +19,43 @@ Sendgo API의 OpenAPI 3.0.3 스펙입니다. 코드 생성기, API 클라이언�
 | 브랜드메시지 캠페인 목록 | `GET` | `/{version}/brand-messages` |
 | 브랜드메시지 캠페인 상세 | `GET` | `/{version}/brand-messages/{campaign_id}` |
 | SMS/LMS/MMS | `POST` | `/{version}/messages/send` |
+| 짧은 URL | `GET`·`POST`·`DELETE` | `/{version}/short-urls[/{code}[/stats]]` |
 
-`{version}` 은 `v1` 또는 `v2` 입니다. 브랜드메시지는 **v2 전용**입니다.
+### 관리 — 등록 · 심사 (v2 전용)
+
+콘솔 화면에서만 되던 일을 코드로 처리합니다.
+
+| 대상 | 메서드 | 경로 |
+| --- | --- | --- |
+| 채널 인증번호 발송 | `POST` | `/{version}/kakao-senders/token` |
+| 발신프로필 등록 | `POST` | `/{version}/kakao-senders` |
+| 발신프로필 목록·카테고리 | `GET` | `/{version}/kakao-senders`, `/kakao-senders/categories` |
+| 발신프로필 동기화 | `POST` | `/{version}/kakao-senders[/{key}]/sync` |
+| 브랜드메시지 M/N 증적·신청 | `POST` | `/{version}/kakao-senders/{key}/brand-message/{evidence\|apply}` |
+| 알림톡 템플릿 CRUD | `GET`·`POST`·`PUT`·`DELETE` | `/{version}/notice-templates[/{templateCode}]` |
+| 알림톡 검수 요청·취소 | `POST`·`DELETE` | `/{version}/notice-templates/{templateCode}/inspection` |
+| 알림톡 승인 취소 | `DELETE` | `/{version}/notice-templates/{templateCode}/approval` |
+| 알림톡 휴면 해제 | `POST` | `/{version}/notice-templates/{templateCode}/release` |
+| 브랜드메시지 템플릿 CRUD | `GET`·`POST`·`PUT`·`DELETE` | `/{version}/brand-templates[/{templateCode}]` |
+| 발신번호 등록·수정·삭제 | `POST`·`PATCH`·`DELETE` | `/{version}/senders[/{senderKey}]` |
+| 발신번호 유형·중복 확인 | `GET`·`POST` | `/{version}/senders/number-types`, `/senders/validate` |
+| 문자 템플릿 CRUD | `GET`·`POST`·`PUT`·`DELETE` | `/{version}/message-templates[/{templateKey}]` |
+| 카카오 이미지 업로드 | `GET`·`POST` | `/{version}/kakao-images/types`, `/kakao-images/{type}` |
+| 수신거부(080) 조회 | `GET` | `/{version}/rejected-numbers` |
+| 이벤트 웹훅 구독 | `GET`·`PUT`·`DELETE`·`POST` | `/{version}/webhook[/test]` |
+
+`{version}` 은 `v1` 또는 `v2` 입니다. 브랜드메시지와 관리 API 는 **v2 전용**입니다.
+
+> **관리 API 는 즉시 완료되지 않습니다.** 알림톡 템플릿은 카카오가, 발신번호는
+> sendgo 운영자가 심사합니다. 등록 호출이 성공했다는 것은 "접수됐다"는 뜻이지
+> "쓸 수 있다"는 뜻이 아닙니다 — `PUT /{version}/webhook` 으로 구독해 결과를
+> 받으세요.
+>
+> 리셀러는 **sendgo.io 콘솔에 들어올 일이 없습니다.** 휴대폰 발신번호는 PASS
+> 대신 신분증 사본을 받아 sendgo 운영자가 대신 심사합니다. 사람이 개입하는
+> 지점은 카카오 채널 인증번호 하나뿐이고, 그것도 리셀러 화면에서 받습니다.
+>
+> 카카오 관련 관리 API 는 **기업(Team) 소유 애플리케이션**만 사용할 수 있습니다.
 
 > ⚠️ **친구톡은 카카오 정책에 따라 2025-12-31 종료되었습니다.**
 > 2026-01-01 부터 `/{version}/friends/send` 로 들어온 요청은 카카오 측에서

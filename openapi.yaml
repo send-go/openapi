@@ -19,6 +19,33 @@ info:
 
     토큰은 발급 후 **24시간** 동안 유효합니다. 응답의 `expiresAt`(v2) / `expires_at`(v1) 값을
     확인해 만료 전에 재발급하세요.
+
+    ## 발송 API 와 관리 API
+
+    - **발송 API** — 알림톡·브랜드메시지·문자·국제문자를 보냅니다. v1/v2 공통.
+    - **관리 API** (v2 전용) — 카카오 채널(발신프로필) 등록, 알림톡 템플릿
+      등록·검수 요청, 브랜드메시지 템플릿 관리, 발신번호 심사 접수,
+      문자 템플릿 관리. 콘솔 화면에서만 되던 일을 코드로 처리합니다.
+
+    관리 API 는 대부분 **즉시 완료되지 않습니다.** 템플릿 검수는 카카오가,
+    발신번호는 sendgo 운영자가 심사합니다. 등록 호출이 성공했다는 것은
+    "접수됐다"는 뜻이지 "쓸 수 있다"는 뜻이 아닙니다. 상태를 조회해 확인하세요.
+
+    **sendgo.io 콘솔에 들어올 일이 없습니다.** 자기 서비스 화면만으로 고객의
+    채널·발신번호·템플릿을 끝까지 처리할 수 있게 설계했습니다.
+
+    사람이 개입하는 지점은 둘이지만, 둘 다 **여러분의 화면에서** 끝납니다.
+
+    1. **카카오 채널 인증번호** — 카카오가 채널 관리자 휴대폰으로 SMS 를 보냅니다.
+       사용자가 그 번호를 여러분 화면에 입력하면 됩니다. 카카오가 직접 하는
+       확인이라 없앨 수 없습니다.
+    2. **휴대폰 발신번호 명의 확인** — 콘솔은 PASS 를 쓰지만, API 는 **신분증
+       사본을 받아 sendgo 운영자가 대신 심사**합니다. 여러분은 서류만 넘기면 됩니다.
+
+    심사 결과는 `POST /{version}/webhook` 으로 구독해 받습니다 — 폴링하지 않아도
+    됩니다.
+
+    카카오 관련 관리 API 는 **기업(Team) 소유 애플리케이션**만 사용할 수 있습니다.
   version: "2.0"
   contact:
     name: Sendgo 개발팀
@@ -27,8 +54,13 @@ info:
     name: MIT
 
 servers:
+  # 모든 공식 SDK 의 기본값은 `https://sendgo.io` 다. 스펙이 다른 호스트를 광고하면
+  # 스펙으로 생성한 클라이언트와 SDK 가 서로 다른 곳을 보게 되므로 순서를 맞춰 둔다.
+  # 두 호스트 모두 유효한 인증서로 정상 응답한다.
+  - url: https://sendgo.io/api
+    description: Sendgo API 서버 (정규 — SDK 기본값)
   - url: https://api.sendgo.io/api
-    description: Sendgo API 서버
+    description: Sendgo API 서버 (별칭)
 
 tags:
   - name: 인증
@@ -46,6 +78,22 @@ tags:
     description: SMS / LMS / MMS 전송
   - name: 짧은URL
     description: 짧은 URL 생성과 고객 반응(클릭) 분석
+  - name: 발신프로필
+    description: 카카오 채널(발신프로필) 인증 · 등록 · 동기화 — v2 전용
+  - name: 알림톡템플릿
+    description: 알림톡 템플릿 등록 · 수정 · 검수 요청 · 승인 취소 — v2 전용
+  - name: 브랜드메시지템플릿
+    description: 브랜드메시지(구 친구톡) 템플릿 등록 · 수정 · 동기화 — v2 전용
+  - name: 발신번호
+    description: 문자 발신번호 등록 · 심사 접수 · 관리 — v2 전용
+  - name: 문자템플릿
+    description: SMS/LMS/MMS 상용구 템플릿 — v2 전용
+  - name: 카카오이미지
+    description: 브랜드메시지·알림톡 이미지 업로드 — 카카오 호스팅 URL 발급. v2 전용
+  - name: 수신거부
+    description: 수신거부(080) 번호 조회 — v2 전용
+  - name: 웹훅
+    description: 등록·심사 결과를 밀어 주는 이벤트 구독 — v2 전용
 
 paths:
   /{version}/token:
@@ -564,6 +612,1210 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+
+  # ------------------------------------------------------------------ 관리 API
+  # 아래 경로는 모두 **v2 전용**이다. 발송 API 와 달리 등록·심사 워크플로우를
+  # 다루므로, 대부분 즉시 완료되지 않고 "접수 → 심사 → 승인" 상태를 거친다.
+
+  /{version}/kakao-senders:
+    get:
+      tags: [발신프로필]
+      summary: 발신프로필 목록
+      description: 애플리케이션 소유 기업(Team)에 등록된 카카오 발신프로필을 모두 조회합니다.
+      operationId: listKakaoSenders
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+    post:
+      tags: [발신프로필]
+      summary: 발신프로필 등록 (2단계)
+      description: |
+        `POST /{version}/kakao-senders/token` 으로 받은 **인증번호**와 카테고리
+        코드로 발신프로필을 만듭니다.
+
+        이미 등록된 채널을 다시 등록하면 카카오가 같은 `senderKey` 를 돌려주며,
+        sendgo 는 기존 행을 갱신합니다(중복 생성되지 않습니다).
+      operationId: createKakaoSender
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KakaoSenderCreateRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/kakao-senders/token:
+    post:
+      tags: [발신프로필]
+      summary: 채널 인증 토큰 요청 (1단계)
+      description: |
+        카카오가 채널 관리자 휴대폰으로 **인증번호를 SMS 발송**합니다.
+        응답에는 인증번호가 들어있지 않습니다 — 사람이 문자를 받아
+        `POST /{version}/kakao-senders` 의 `token` 에 넣어야 합니다.
+
+        즉 채널 등록은 완전 무인 자동화가 불가능합니다. 이 API 가 하는 일은
+        "인증번호 발송을 코드로 트리거"하는 데까지입니다.
+      operationId: requestKakaoSenderToken
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [yellowId, phoneNumber]
+              properties:
+                yellowId:
+                  type: string
+                  description: 카카오톡 채널 검색용 아이디. `@` 는 있어도 없어도 됩니다.
+                  example: '@sendgo'
+                phoneNumber:
+                  type: string
+                  description: 채널 관리자 휴대폰 번호. 하이픈은 무시됩니다.
+                  example: '01012345678'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/kakao-senders/categories:
+    get:
+      tags: [발신프로필]
+      summary: 발신프로필 카테고리 조회
+      description: |
+        발신프로필 등록 시 `categoryCode` 로 넣을 값 목록입니다.
+        `categoryCode` 쿼리를 주면 해당 코드 하나만 조회합니다.
+      operationId: listKakaoSenderCategories
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: categoryCode
+          in: query
+          required: false
+          schema: { type: string }
+          example: '001001'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+
+  /{version}/kakao-senders/sync:
+    post:
+      tags: [발신프로필]
+      summary: 전체 발신프로필 동기화
+      description: |
+        기업의 모든 발신프로필 상태(차단·휴면·프로필 상태)를 카카오에서 다시 읽습니다.
+        일부 채널이 실패해도 나머지는 갱신하며, 실패분은 `data.failed` 에 담깁니다.
+      operationId: syncAllKakaoSenders
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+
+  /{version}/kakao-senders/{kakaoSenderKey}/sync:
+    post:
+      tags: [발신프로필]
+      summary: 발신프로필 단건 동기화
+      operationId: syncKakaoSender
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/KakaoSenderKeyPath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/kakao-senders/{kakaoSenderKey}/brand-message/evidence:
+    post:
+      tags: [발신프로필]
+      summary: 브랜드메시지 M/N — 수신동의 증적자료 업로드
+      description: |
+        브랜드메시지 마케팅(M) 타겟팅을 신청하기 전에, 광고성 정보 수신동의를
+        받았다는 증적자료를 올려야 합니다. jpg/png, 5MB 이하.
+      operationId: uploadBrandMessageEvidence
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/KakaoSenderKeyPath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [evidence]
+              properties:
+                evidence:
+                  type: string
+                  format: binary
+                  description: jpg 또는 png, 최대 5MB
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/kakao-senders/{kakaoSenderKey}/brand-message/apply:
+    post:
+      tags: [발신프로필]
+      summary: 브랜드메시지 M/N 사용 신청
+      description: |
+        `M`(마케팅) 또는 `N`(정보성) 타겟팅 사용을 신청합니다.
+        `M` 은 증적자료 업로드가 선행돼야 합니다.
+
+        결과는 즉시 확정되지 않습니다. 상태는 발신프로필의
+        `brandMessageStatus`(`NOT_APPLIED` / `EVIDENCE_REQUIRED` / `APPROVED` /
+        `REJECTED` / `REVOKED` / `BLOCKED`)로 확인합니다.
+      operationId: applyBrandMessageTargeting
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/KakaoSenderKeyPath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType]
+              properties:
+                targetType:
+                  type: string
+                  enum: [M, N]
+                  description: M = 마케팅, N = 정보성
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/notice-templates:
+    get:
+      tags: [알림톡템플릿]
+      summary: 알림톡 템플릿 목록
+      operationId: listNoticeTemplates
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: kakaoSenderKey
+          in: query
+          schema: { type: string }
+        - name: inspectionStatus
+          in: query
+          description: 'REG(등록) / REQ(심사요청) / APR(승인) / REJ(반려) / BLOCK / DORMANT'
+          schema:
+            type: string
+            enum: [REG, REQ, APR, REJ, BLOCK, DORMANT]
+        - name: search
+          in: query
+          description: 템플릿명·코드·본문 부분 일치
+          schema: { type: string }
+        - name: count
+          in: query
+          schema: { type: integer, default: 30 }
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+    post:
+      tags: [알림톡템플릿]
+      summary: 알림톡 템플릿 등록
+      description: |
+        템플릿을 만들고 카카오에 등록합니다. 등록 직후 상태는
+        `status=R`, `inspectionStatus=REG` 이며, **아직 발송할 수 없습니다.**
+        `POST /{version}/notice-templates/{templateCode}/inspection` 으로
+        검수를 요청해 `APR` 이 되어야 발송 가능합니다.
+
+        `templateEmphasizeType=IMAGE` 인 경우에는 `multipart/form-data` 로
+        `image` 파일을 함께 보내야 하며, 이때 `buttons` 같은 배열 필드는
+        JSON 문자열로 인코딩해 보내면 서버가 해석합니다.
+
+        `messagePurpose`·`legalBasis`·`benefitOrigin`·`expiryType` 과 3종 확인
+        필드는 sendgo 자체 정책 게이트입니다. API 라고 우회되지 않으며,
+        통과하지 못하면 `POLICY_VALIDATION_FAILED` 로 거절됩니다.
+      operationId: createNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoticeTemplateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NoticeTemplateRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '422':
+          $ref: '#/components/responses/PolicyValidationFailed'
+
+  /{version}/notice-templates/categories:
+    get:
+      tags: [알림톡템플릿]
+      summary: 템플릿 카테고리 코드 조회
+      description: 등록 시 `categoryCode` 로 넣을 6자리 값 목록입니다.
+      operationId: listNoticeTemplateCategories
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: categoryCode
+          in: query
+          schema: { type: string }
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+
+  /{version}/notice-templates/{templateCode}:
+    get:
+      tags: [알림톡템플릿]
+      summary: 알림톡 템플릿 조회
+      description: 응답의 `data.template.policy` 에 정책 검토 상태와 미충족 사유가 들어 있습니다.
+      operationId: showNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [알림톡템플릿]
+      summary: 알림톡 템플릿 수정
+      description: |
+        발신프로필과 템플릿 코드는 바꿀 수 없습니다 — 카카오 쪽 식별자라
+        바뀌면 예약된 캠페인이 끊깁니다.
+
+        정책 필드만 바꾼 경우에는 카카오를 호출하지 않고 로컬만 갱신합니다.
+        본문·버튼 등 카카오에 등록된 내용이 바뀌면 검수 상태가 되돌아가므로
+        재검수를 요청해야 합니다.
+      operationId: updateNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoticeTemplateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/PolicyValidationFailed'
+    delete:
+      tags: [알림톡템플릿]
+      summary: 알림톡 템플릿 삭제 (sendgo 목록에서만)
+      description: |
+        **카카오는 템플릿 삭제 API 를 제공하지 않습니다.** 이 호출은 sendgo
+        목록에서만 지우며, 비즈니스 채널 쪽 템플릿은 그대로 남습니다.
+        동기화하면 다시 나타납니다.
+      operationId: deleteNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/notice-templates/{templateCode}/sync:
+    post:
+      tags: [알림톡템플릿]
+      summary: 템플릿 상태 동기화
+      description: 카카오에서 검수 상태·반려 사유(`comments`)를 다시 읽어 옵니다.
+      operationId: syncNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/notice-templates/{templateCode}/inspection:
+    post:
+      tags: [알림톡템플릿]
+      summary: 검수 요청
+      description: |
+        `inspectionStatus` 가 `REG` 인 템플릿을 카카오 검수에 올립니다.
+        요청이 접수되면 `REQ` 가 되고, 카카오 심사 후 `APR`(승인) 또는
+        `REJ`(반려)로 바뀝니다. 결과는 즉시 오지 않으므로
+        `/sync` 로 폴링하세요.
+
+        sendgo 정책 검토를 통과하지 못한 템플릿은 `POLICY_REVIEW_REQUIRED`
+        로 거절됩니다. 응답 `errors.reasons` 에 미충족 항목이 담깁니다.
+      operationId: requestNoticeTemplateInspection
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+                  maxLength: 500
+                  description: 심사자에게 전달할 문의사항
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+                  maxLength: 500
+                  description: 첨부파일이 있으면 필수입니다.
+                attachments:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: string
+                    format: binary
+                  description: jpg/png/pdf, 각 5MB 이하. 증빙 자료
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/PolicyValidationFailed'
+    delete:
+      tags: [알림톡템플릿]
+      summary: 검수 요청 취소
+      description: 아직 심사 중(`REQ`)일 때만 가능합니다. 취소하면 `REG` 로 돌아갑니다.
+      operationId: cancelNoticeTemplateInspection
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/notice-templates/{templateCode}/approval:
+    delete:
+      tags: [알림톡템플릿]
+      summary: 승인 취소
+      description: 이미 승인(`APR`)된 템플릿의 승인을 되돌립니다. 이후에는 발송할 수 없습니다.
+      operationId: cancelNoticeTemplateApproval
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/notice-templates/{templateCode}/release:
+    post:
+      tags: [알림톡템플릿]
+      summary: 휴면 해제
+      description: 오래 사용하지 않아 `dormant` 로 잠긴 템플릿을 다시 활성화합니다.
+      operationId: releaseNoticeTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/brand-templates:
+    get:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 목록
+      operationId: listBrandTemplates
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: kakaoSenderKey
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: count
+          in: query
+          schema: { type: integer, default: 30 }
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+    post:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 등록
+      description: |
+        알림톡 템플릿과 달리 **검수 요청 단계가 없습니다.** 등록하면 카카오가
+        바로 상태를 돌려주고, 그 값이 `status` 로 노출됩니다.
+
+        `templateType` 은 친구톡 표기(`FT`/`FI`/`FW`/`FL`/`FC`/`FM`/`FP`/`FA`)를
+        그대로 씁니다. 서버가 `chatBubbleType`(TEXT/IMAGE/WIDE/...) 으로 변환합니다.
+
+        동보 발송(`targeting=F`)에는 **변수가 없는 템플릿만** 쓸 수 있습니다.
+        응답의 `containsVariables` 로 미리 확인하세요.
+      operationId: createBrandTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandTemplateRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/brand-templates/import:
+    post:
+      tags: [브랜드메시지템플릿]
+      summary: 발신프로필 단위 템플릿 가져오기
+      description: 카카오 쪽에 이미 있는 템플릿을 sendgo 로 들여옵니다.
+      operationId: importBrandTemplates
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kakaoSenderKey]
+              properties:
+                kakaoSenderKey: { type: string }
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/brand-templates/{templateCode}:
+    get:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 조회
+      description: sendgo 코드(`KFT-...`)와 카카오 브랜드 템플릿 코드 둘 다 받습니다.
+      operationId: showBrandTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 수정
+      operationId: updateBrandTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandTemplateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 삭제
+      description: 알림톡과 달리 카카오 쪽에서도 실제로 삭제됩니다.
+      operationId: deleteBrandTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/brand-templates/{templateCode}/sync:
+    post:
+      tags: [브랜드메시지템플릿]
+      summary: 브랜드메시지 템플릿 동기화
+      description: |
+        카카오 쪽에서 이미 삭제된 템플릿이면 sendgo 에서도 제거하고
+        `data.deleted: true` 를 반환합니다.
+      operationId: syncBrandTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateCodePath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/senders:
+    get:
+      tags: [발신번호]
+      summary: 발신번호 목록
+      operationId: listSenders
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [발신번호]
+      summary: 발신번호 등록 신청
+      description: |
+        서류 첨부가 있으므로 `multipart/form-data` 로 보냅니다. 등록하면 바로
+        쓸 수 있는 게 아니라 `PENDING` 으로 **접수**되고, 운영자 승인 후
+        `SUCCESS` 가 됩니다. 상태는 `GET /{version}/senders` 로 확인하거나
+        `sender.status_changed` 웹훅으로 받습니다.
+
+        ### 본인확인을 어떻게 대신하나
+
+        콘솔은 휴대폰 계열(`personal_mobile`, `team_representative_mobile`,
+        `team_emp_mobile`)에 **PASS 본인인증**을 요구합니다. API 에는 그 화면이
+        없으므로 **신분증 사본(`identityDocument`)을 받아 운영자가 직접
+        확인**합니다. 모든 유형을 API 로 접수할 수 있습니다.
+
+        이 경로로 접수된 건은 `identityVerificationMethod: "document"` 로
+        표시되고 **자동 승인되지 않습니다.** 운영자 확인 전까지 `PENDING` 입니다.
+
+        유형별 필수 서류는 `GET /{version}/senders/number-types` 로 확인하세요.
+      operationId: createSender
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SenderRegistrationRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/SenderRegistrationRejected'
+
+  /{version}/senders/number-types:
+    get:
+      tags: [발신번호]
+      summary: 발신번호 유형과 필수 서류 안내
+      description: |
+        계정 종류(개인/기업)에 맞는 발신번호 유형과, 유형별로 첨부해야 하는
+        서류를 알려줍니다. `apiRegistrable: false` 인 유형은 휴대폰 본인인증이
+        필요해 API 로 접수할 수 없습니다.
+      operationId: listSenderNumberTypes
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /{version}/senders/validate:
+    post:
+      tags: [발신번호]
+      summary: 발신번호 등록 전 중복·형식 확인
+      description: |
+        같은 번호가 이미 있으면 등록은 가능하되 `duplicationReason` 이 필수가
+        됩니다. 응답의 `duplicationReasonRequired` 로 미리 판단하세요.
+      operationId: validateSenderNumber
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneE164, senderNumberType]
+              properties:
+                phoneE164:
+                  type: string
+                  example: '021234567'
+                senderNumberType:
+                  type: string
+                  enum:
+                    - personal_mobile
+                    - personal_other
+                    - team_main
+                    - team_representative_mobile
+                    - team_emp_mobile
+                    - team_other_company
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/senders/{senderKey}:
+    patch:
+      tags: [발신번호]
+      summary: 발신번호 별칭·기본발신 변경
+      description: 번호 자체와 심사 상태는 바꿀 수 없습니다.
+      operationId: updateSender
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/SenderKeyPath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [senderAlias]
+              properties:
+                senderAlias: { type: string, maxLength: 20 }
+                primaryType:
+                  type: string
+                  enum: [PRIMARY, SECONDARY]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags: [발신번호]
+      summary: 발신번호 삭제
+      description: 기본 발신번호를 지우면 남은 번호 중 하나가 기본으로 승계됩니다.
+      operationId: deleteSender
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/SenderKeyPath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/message-templates:
+    get:
+      tags: [문자템플릿]
+      summary: 문자 템플릿 목록
+      operationId: listMessageTemplates
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: messageType
+          in: query
+          schema: { type: string, enum: [SMS, LMS, MMS, TOTAL] }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: count
+          in: query
+          schema: { type: integer, default: 30 }
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [문자템플릿]
+      summary: 문자 템플릿 등록
+      description: 검수가 없습니다. 만들면 바로 쓸 수 있습니다.
+      operationId: createMessageTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageTemplateRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/message-templates/{templateKey}:
+    get:
+      tags: [문자템플릿]
+      summary: 문자 템플릿 조회
+      operationId: showMessageTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateKeyPath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [문자템플릿]
+      summary: 문자 템플릿 수정
+      operationId: updateMessageTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateKeyPath'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageTemplateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags: [문자템플릿]
+      summary: 문자 템플릿 삭제
+      operationId: deleteMessageTemplate
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - $ref: '#/components/parameters/TemplateKeyPath'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /{version}/kakao-images/types:
+    get:
+      tags: [카카오이미지]
+      summary: 업로드 가능한 이미지 유형과 제약
+      description: |
+        유형별로 필드 이름(`image` / `images[]`)과 최대 개수가 다릅니다.
+        문서를 열지 않고도 확인할 수 있게 열어 둡니다.
+      operationId: listKakaoImageTypes
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+
+  /{version}/kakao-images/{type}:
+    post:
+      tags: [카카오이미지]
+      summary: 카카오 이미지 업로드
+      description: |
+        브랜드메시지 템플릿의 `imageUrl` 은 아무 URL 이나 되는 게 아니라
+        **카카오가 호스팅하는 URL** 이어야 합니다. 그 URL 을 얻는 방법이
+        이 업로드뿐입니다.
+
+        알림톡 본문 이미지는 템플릿 등록에 파일을 함께 실으면 되므로
+        (`POST /{version}/notice-templates` 의 multipart) 보통 이 엔드포인트가
+        필요 없습니다. 다만 `templateItemHighlight` 의 이미지처럼 본문과 따로
+        올려야 하는 경우가 있어 함께 엽니다.
+
+        ### 유형
+
+        | type | 필드 | 최대 | 쓰임 |
+        | --- | --- | --- | --- |
+        | `alimtalk` | `image` | 1 | 알림톡 본문 이미지 |
+        | `alimtalk_highlight` | `image` | 1 | 알림톡 아이템 하이라이트 |
+        | `default` | `image` | 1 | 브랜드메시지 기본 이미지 (FI) |
+        | `wide` | `image` | 1 | 와이드 이미지 (FW) |
+        | `wide_item_list_first` | `image` | 1 | 와이드 아이템 리스트 대표 (FL) |
+        | `wide_item_list` | `images[]` | 4 | FL 의 2~4번째 항목 |
+        | `carousel_feed` | `images[]` | 10 | 캐러셀 피드 (FC) |
+        | `carousel_commerce` | `images[]` | 11 | 캐러셀 커머스 (FA) |
+      operationId: uploadKakaoImage
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - alimtalk
+              - alimtalk_highlight
+              - default
+              - wide
+              - wide_item_list_first
+              - wide_item_list
+              - carousel_feed
+              - carousel_commerce
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: 단일 유형에서 사용. jpg/png, 2MB 이하
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: 다중 유형에서 사용. 유형별 최대 개수가 다릅니다
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/TeamRequired'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /{version}/rejected-numbers:
+    get:
+      tags: [수신거부]
+      summary: 수신거부(080) 번호 목록
+      description: |
+        광고성 메시지는 수신거부한 번호로 보내면 안 됩니다. 발송 API 가 알아서
+        제외하지만, **자기 DB 의 수신 상태도 맞춰야** 합니다 — 그러지 않으면
+        매번 보내고 매번 걸러지는 것을 반복하고, 자기 화면에서는 여전히
+        "수신 동의" 로 보입니다.
+
+        `since` 로 증분만 가져갈 수 있습니다. 전체를 매번 받으면 번호가 쌓일수록
+        무거워집니다.
+
+        조회 전용입니다 — 수신거부는 수신자가 ARS·웹으로 직접 하는 것이고
+        발송자가 API 로 넣거나 뺄 수 있는 값이 아닙니다.
+      operationId: listRejectedNumbers
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+        - name: since
+          in: query
+          description: 이 날짜 이후 수신거부된 건만
+          schema: { type: string, format: date }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: count
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /{version}/webhook:
+    get:
+      tags: [웹훅]
+      summary: 웹훅 구독 조회
+      description: |
+        마지막 전송 결과(`lastStatus`, `lastSentAt`)도 함께 줍니다 —
+        내 엔드포인트가 실제로 받고 있는지 확인할 수 있어야 합니다.
+
+        시크릿 값은 다시 보여주지 않습니다. 설정 여부만 `hasSecret` 으로 알려줍니다.
+      operationId: showWebhook
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [웹훅]
+      summary: 웹훅 구독 생성 · 수정
+      description: |
+        등록·심사는 비동기입니다. 구독해 두면 상태가 바뀔 때마다 밀어 주므로
+        폴링하지 않아도 됩니다.
+
+        `secret` 을 생략하면 서버가 만들어 **이 응답에서 한 번만** 돌려줍니다.
+        이후 조회에서는 나오지 않으니 받은 값을 저장하세요. 이미 시크릿이
+        있는 상태에서 생략하면 기존 값을 유지합니다 — URL 만 바꾸는 호출이
+        서명 키를 날리지 않습니다.
+
+        `events` 를 생략하면 **전체 구독**입니다. 이벤트가 늘어도 설정을
+        고치지 않아도 됩니다.
+
+        ### 서명 검증
+
+        ```
+        expected = hmac_sha256(rawRequestBody, webhookSecret)
+        // X-Sendgo-Signature 헤더와 상수 시간 비교
+        ```
+
+        **파싱한 뒤 다시 인코딩한 값으로 계산하면 안 됩니다.** 키 순서나
+        이스케이프가 조금만 달라도 검증이 깨집니다. 받은 바이트 그대로 쓰세요.
+
+        ### 이벤트
+
+        | 이벤트 | 언제 |
+        | --- | --- |
+        | `sender.status_changed` | 발신번호 심사 상태 변경 (PENDING → SUCCESS / REJECTED …) |
+        | `notice_template.inspection_status_changed` | 알림톡 검수 상태 변경 (REG → REQ → APR / REJ) |
+        | `kakao_sender.status_changed` | 채널 차단·휴면·프로필 상태 변경 |
+        | `kakao_sender.brand_message_status_changed` | 브랜드메시지 M/N 신청 상태 변경 |
+
+        전송은 실패 시 1분 · 5분 · 15분 · 1시간 간격으로 4회 재시도합니다.
+      operationId: updateWebhook
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSubscriptionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags: [웹훅]
+      summary: 웹훅 구독 해지
+      description: URL 과 시크릿을 지웁니다.
+      operationId: deleteWebhook
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /{version}/webhook/test:
+    post:
+      tags: [웹훅]
+      summary: 테스트 이벤트 발송
+      description: |
+        `webhook.test` 이벤트를 보냅니다. 구독 이벤트 목록에 없어도 도착하므로
+        연동 단계에서 엔드포인트와 서명 검증을 확인할 수 있습니다.
+
+        전송은 비동기입니다 — 응답은 큐에 넣었다는 뜻이고, 도착 여부는
+        엔드포인트 로그로 확인하세요.
+      operationId: testWebhook
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
 components:
   securitySchemes:
     BasicAuth:
@@ -596,8 +1848,337 @@ components:
         enum: [v1, v2]
         default: v1
       example: v2
+    KakaoSenderKeyPath:
+      name: kakaoSenderKey
+      in: path
+      required: true
+      description: 카카오 발신프로필 키
+      schema: { type: string }
+      example: 8f9b1c2d3e4f5a6b7c8d9e0f
+    TemplateCodePath:
+      name: templateCode
+      in: path
+      required: true
+      description: 템플릿 코드
+      schema: { type: string, maxLength: 30 }
+      example: TPL-20260910-0001
+    TemplateKeyPath:
+      name: templateKey
+      in: path
+      required: true
+      description: 문자 템플릿 키 (uuid)
+      schema: { type: string }
+    SenderKeyPath:
+      name: senderKey
+      in: path
+      required: true
+      description: 발신번호 키 (uuid)
+      schema: { type: string }
 
   schemas:
+    KakaoSenderCreateRequest:
+      type: object
+      required: [token, yellowId, phoneNumber, categoryCode]
+      properties:
+        token:
+          type: string
+          description: 1단계에서 관리자 휴대폰으로 받은 인증번호
+          example: '123456'
+        yellowId:
+          type: string
+          description: 카카오톡 채널 아이디. `@` 는 있어도 없어도 됩니다.
+          example: '@sendgo'
+        phoneNumber:
+          type: string
+          example: '01012345678'
+        categoryCode:
+          type: string
+          description: '`GET /{version}/kakao-senders/categories` 의 코드'
+          example: '001001'
+
+    NoticeTemplateRequest:
+      type: object
+      required:
+        - kakaoSenderKey
+        - templateName
+        - templateContent
+        - templateMessageType
+        - templateEmphasizeType
+        - categoryCode
+        - messagePurpose
+        - legalBasis
+        - benefitOrigin
+        - expiryType
+        - optInReviewConfirmed
+        - ctaClearConfirmed
+        - policyConfirmed
+      properties:
+        kakaoSenderKey:
+          type: string
+          description: 수정 시에는 무시됩니다 (변경 불가).
+        templateName: { type: string, maxLength: 150 }
+        templateContent:
+          type: string
+          maxLength: 1000
+          description: '변수는 `#{name}` 형식으로 씁니다.'
+          example: "#{name}님, 주문 #{orderNo} 이 접수되었습니다."
+        templateMessageType:
+          type: string
+          enum: [BA, EX, AD, MI]
+          description: |
+            BA 기본형 / EX 부가정보형 / AD 채널추가형 / MI 복합형.
+            EX·MI 는 `templateExtra` 필수, AD·MI 는 `linkType=AC` 버튼 필수.
+        templateEmphasizeType:
+          type: string
+          enum: [NONE, TEXT, ITEM_LIST, IMAGE]
+          description: |
+            TEXT 는 `templateTitle`·`templateSubtitle` 필수,
+            ITEM_LIST 는 `templateItem.list` 필수,
+            IMAGE 는 `image` 파일 업로드 필수(multipart).
+        categoryCode:
+          type: string
+          description: 6자리 숫자. `GET /{version}/notice-templates/categories` 참고
+          example: '001001'
+        templateTitle: { type: string, maxLength: 50, nullable: true }
+        templateSubtitle: { type: string, maxLength: 50, nullable: true }
+        templateHeader: { type: string, maxLength: 16, nullable: true }
+        templateExtra: { type: string, maxLength: 500, nullable: true }
+        templateItem: { type: object, nullable: true }
+        templateItemHighlight: { type: object, nullable: true }
+        templateRepresentLink: { type: object, nullable: true }
+        buttons:
+          type: array
+          nullable: true
+          items: { type: object }
+        quickReplies:
+          type: array
+          nullable: true
+          items: { type: object }
+        securityFlag: { type: boolean, default: false }
+        adultFlag: { type: boolean, default: false }
+        image:
+          type: string
+          format: binary
+          nullable: true
+          description: '`templateEmphasizeType=IMAGE` 일 때 필수. jpg/png, 500KB 이하'
+        messagePurpose:
+          type: string
+          description: 메시지 목적
+          enum:
+            - order_delivery
+            - reservation_booking
+            - payment_billing
+            - account_auth
+            - service_ops
+            - policy_notice
+            - benefit_notice
+            - customer_support
+            - other
+        legalBasis:
+          type: string
+          description: 발송 근거
+          enum: [transaction, paid_purchase, event_entry, contract, policy_notice]
+        benefitOrigin:
+          type: string
+          description: 혜택 발생 경위. `benefit_notice` 목적이면 `none` 을 쓸 수 없습니다.
+          enum: [none, paid, event, contract, promo, free]
+        expiryType:
+          type: string
+          description: 소멸 유형
+          enum: [none, rights_based, promo]
+        optInReviewConfirmed:
+          type: boolean
+          description: 사전동의 검토를 마쳤다는 확인. `true` 여야 합니다.
+        ctaClearConfirmed:
+          type: boolean
+          description: 구매·혜택 유도 문구가 없음을 확인. `true` 여야 합니다.
+        policyConfirmed:
+          type: boolean
+          description: 발신자 정책 확인. `true` 여야 검수를 요청할 수 있습니다.
+
+    BrandTemplateRequest:
+      type: object
+      required: [kakaoSenderKey, templateName, templateType]
+      properties:
+        kakaoSenderKey:
+          type: string
+          description: 수정 시에는 무시됩니다 (변경 불가).
+        templateName: { type: string, maxLength: 200 }
+        templateType:
+          type: string
+          enum: [FT, FI, FW, FL, FC, FM, FP, FA]
+          description: |
+            친구톡 표기를 그대로 씁니다. 서버가 chatBubbleType 으로 변환합니다.
+            FT 텍스트 / FI 이미지 / FW 와이드 / FL 와이드아이템리스트 /
+            FC 캐러셀피드 / FM 커머스 / FP 프리미엄동영상 / FA 캐러셀커머스
+        templateContent:
+          type: string
+          maxLength: 1300
+          nullable: true
+          description: 'FW·FP 는 76자, FI 는 400자, FT 는 1000자 제한'
+        adult: { type: boolean, default: false }
+        header: { type: string, maxLength: 100, nullable: true }
+        additional_content: { type: string, maxLength: 500, nullable: true }
+        imageUrl: { type: string, nullable: true }
+        imageLink: { type: string, format: uri, nullable: true }
+        buttons:
+          type: array
+          maxItems: 5
+          nullable: true
+          items: { type: object }
+        coupon: { type: object, nullable: true }
+        item: { type: object, nullable: true }
+        commerce: { type: object, nullable: true }
+        list: { type: array, nullable: true, items: { type: object } }
+        head: { type: object, nullable: true }
+        tail: { type: object, nullable: true }
+        video: { type: object, nullable: true }
+        mainWideItem: { type: object, nullable: true }
+        subWideItemList: { type: array, nullable: true, items: { type: object } }
+
+    SenderRegistrationRequest:
+      type: object
+      required: [senderAlias, senderNumberType, phoneE164, csuCertificate]
+      properties:
+        senderAlias:
+          type: string
+          maxLength: 20
+          description: 계정 안에서 중복될 수 없는 관리용 이름
+          example: 고객센터 대표번호
+        senderNumberType:
+          type: string
+          description: |
+            전 유형을 API 로 접수할 수 있습니다.
+            개인 계정은 `personal_mobile` / `personal_other`,
+            기업 계정은 `team_main` / `team_representative_mobile` /
+            `team_emp_mobile` / `team_other_company`.
+          enum:
+            - personal_mobile
+            - personal_other
+            - team_main
+            - team_representative_mobile
+            - team_emp_mobile
+            - team_other_company
+        phoneE164:
+          type: string
+          description: 숫자와 하이픈만. 서버가 E.164 로 정규화합니다.
+          example: '02-1234-5678'
+        duplicationReason:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: 계정에 같은 번호가 이미 있으면 필수입니다.
+        csuCertificate:
+          type: string
+          format: binary
+          description: 통신서비스 이용증명원. jpeg/png/pdf, 5MB 이하
+        identityDocument:
+          type: string
+          format: binary
+          description: |
+            명의자 신분증 사본. 휴대폰 계열(`personal_mobile`,
+            `team_representative_mobile`, `team_emp_mobile`)에 **필수**입니다 —
+            콘솔의 PASS 본인인증을 대신해 운영자가 직접 확인합니다.
+        acceptanceName:
+          type: string
+          nullable: true
+          description: 수임 담당자 유형. `team_other_company` 필수
+          enum: [acceptance_representative, acceptance_employee]
+        acceptanceIdCard:
+          type: string
+          format: binary
+          nullable: true
+          description: '`team_other_company` 필수'
+        delegationName:
+          type: string
+          nullable: true
+          description: 위임 담당자 유형. `team_other_company` 필수
+          enum: [delegation_representative, delegation_employee]
+        delegationIdCard:
+          type: string
+          format: binary
+          nullable: true
+          description: '`team_other_company` 필수'
+        delegationBusinessCard:
+          type: string
+          format: binary
+          nullable: true
+          description: '`team_other_company` 필수'
+        delegationWarrant:
+          type: string
+          format: binary
+          nullable: true
+          description: 위임장. `team_other_company` 필수
+        delegationEmpCertificate:
+          type: string
+          format: binary
+          nullable: true
+          description: '`delegationName=delegation_employee` 일 때 필수'
+        delegationReason:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: '`team_other_company` 필수'
+        empCertificate:
+          type: string
+          format: binary
+          nullable: true
+          description: 재직증명서
+
+    WebhookSubscriptionRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: |
+            이벤트를 받을 주소. **https 만 허용**합니다 — http 로 받으면
+            서명이 있어도 본문이 평문으로 흐릅니다.
+          example: https://reseller.example.com/hooks/sendgo
+        secret:
+          type: string
+          minLength: 16
+          maxLength: 128
+          nullable: true
+          description: |
+            서명 키. 생략하면 서버가 만들어 이 응답에서 한 번만 돌려줍니다.
+            이미 있는 상태에서 생략하면 기존 값을 유지합니다.
+        events:
+          type: array
+          nullable: true
+          description: 구독할 이벤트. 생략하면 전체 구독.
+          items:
+            type: string
+            enum:
+              - sender.status_changed
+              - notice_template.inspection_status_changed
+              - kakao_sender.status_changed
+              - kakao_sender.brand_message_status_changed
+        enabled:
+          type: boolean
+          default: true
+
+    MessageTemplateRequest:
+      type: object
+      required: [messageTranType, messageTranMsg]
+      properties:
+        messageTranType:
+          type: string
+          enum: [SMS, LMS, MMS]
+        messageTranSubject:
+          type: string
+          maxLength: 40
+          nullable: true
+          description: LMS·MMS 는 필수. SMS 에 넣으면 발송 시 버려집니다.
+        messageTranMsg:
+          type: string
+          maxLength: 2000
+          description: 'SMS 는 90바이트, LMS·MMS 는 2000바이트까지 실제 발송됩니다.'
+        isFavorite:
+          type: boolean
+          default: false
     ShortUrlRequest:
       type: object
       required: [targetUrl]
@@ -937,6 +2518,85 @@ components:
           example: "존재하지 않는 템플릿 코드입니다."
 
   responses:
+    TeamRequired:
+      description: 기업(Team) 소유 애플리케이션이 아님
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "TEAM_REQUIRED_FOR_KAKAO"
+            message: "Kakao API is only available for team-owned applications."
+
+    UnprocessableEntity:
+      description: 요청은 이해했으나 처리할 수 없음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validationFailed:
+              value:
+                code: "VALIDATION_FAILED"
+                message: "The given data was invalid."
+            kakaoError:
+              summary: 카카오/중계사가 거절한 경우 (원문 메시지 그대로 전달)
+              value:
+                code: "KAKAO_API_ERROR"
+                message: "이미 등록된 발신프로필입니다."
+
+    PolicyValidationFailed:
+      description: sendgo 메시지 정책 게이트를 통과하지 못함
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            saveBlocked:
+              summary: 저장 단계에서 차단
+              value:
+                code: "POLICY_VALIDATION_FAILED"
+                message: "The template violates the sendgo message policy."
+                errors:
+                  reasons:
+                    - "혜택 안내가 아닌 메시지 목적을 선택했지만 혜택성 신호가 감지되었습니다."
+            inspectionBlocked:
+              summary: 검수 요청 단계에서 차단
+              value:
+                code: "POLICY_REVIEW_REQUIRED"
+                message: "The template has not passed the sendgo policy review yet."
+                errors:
+                  reasons:
+                    - message: "발신자 정책 확인이 완료되지 않았습니다."
+                      causes: []
+
+    SenderRegistrationRejected:
+      description: 발신번호 등록 신청이 거절됨
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingIdentityDocument:
+              summary: 휴대폰 유형인데 신분증 사본이 없음
+              value:
+                code: "VALIDATION_FAILED"
+                message: "The given data was invalid."
+                errors:
+                  identityDocument:
+                    - "The identity document field is required."
+            duplicationReason:
+              value:
+                code: "DUPLICATION_REASON_REQUIRED"
+                message: "This number is already registered for the account; duplicationReason is required."
+            aliasTaken:
+              value:
+                code: "SENDER_ALIAS_TAKEN"
+                message: "senderAlias is already in use."
+            typeMismatch:
+              value:
+                code: "SENDER_TYPE_OWNER_MISMATCH"
+                message: "Sender number type 'team_main' requires a team-owned application."
     SuccessResponse:
       description: 전송 성공
       content:
