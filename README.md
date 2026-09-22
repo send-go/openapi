@@ -4,7 +4,7 @@ Sendgo API의 OpenAPI 3.0.3 스펙입니다. 코드 생성기, API 클라이언�
 그대로 넣어 쓸 수 있는 기계 판독용 계약입니다.
 
 - 최신 스펙: <https://sendgo.io/openapi.yaml>
-- 서버: `https://sendgo.io/api` (별칭 `https://api.sendgo.io/api`)
+- 서버: `https://sendgo.io/api`
 
 ## 엔드포인트
 
@@ -127,3 +127,9 @@ npx @redocly/cli lint openapi.yaml
 ## 라이선스
 
 MIT © Sendgo — https://sendgo.io
+
+## 계정 API (본체 3.3.0)
+
+`/v2/account`의 12개 연산과 `AgentToken` 인증 스키마를 동기화했습니다.
+계정 조회, 조직 목록·선택, API 키 CRUD·발송 토큰 발급, 허용 IP 목록·추가·삭제를 제공합니다.
+애플리케이션 토큰 대신 콘솔에서 발급받은 에이전트 토큰을 Bearer로 전달합니다.
