@@ -134,7 +134,7 @@ MIT © Sendgo — https://sendgo.io
 계정 조회, 조직 목록·선택, API 키 CRUD·발송 토큰 발급, 허용 IP 목록·추가·삭제를 제공합니다.
 애플리케이션 토큰 대신 콘솔에서 발급받은 에이전트 토큰을 Bearer로 전달합니다.
 
-## 템플릿 폴더 (1.5.0)
+## 템플릿 폴더 (1.6.0)
 
 기업 계정의 발송용 API 키와 `apiVersion=v2` 설정으로 사용하는 서버 전용 API입니다.
 폴더는 알림톡·브랜드메시지가 공유하며, 목록의 `templateType`은 `notice` 또는 `brand`입니다.
@@ -156,3 +156,30 @@ MIT © Sendgo — https://sendgo.io
 | GET | `/v2/template-folders` | 폴더 트리와 개수 |
 | POST | `/v2/template-folders` | 폴더 생성 |
 | PATCH | `/v2/template-folders/templates` | 일괄 이동·미분류로 이동 |
+
+## 1.6 이메일 API와 브랜드 타기팅
+
+이메일은 서버 전용이며 클라이언트 설정에서 API 버전을 `v2`로 지정합니다.
+브랜드 타기팅은 `M`(친구+비친구), `N`(비친구), `I`(친구교집합),
+`O`(친구만), `F`(동보)를 지원합니다. `O`는 SDK에서 바꾸지 않고 서버로 전달합니다.
+
+이메일 발송·견적·조회·취소, 발신자·도메인 인증, 자격증명, 수신함·원본 EML,
+템플릿·주소록·연락처·발신자 프로필·캠페인 API를 지원합니다.
+일반 API는 기존 앱 Bearer 인증을 사용합니다. `EmailService`의
+`withCredentials` / `with_credentials` / `WithCredentials` / Go `NewEmailWithCredentials`는
+별도로 발급된 이메일 credential ID/password를 사용하며 `/api/v2/email-service`로 호출합니다.
+이 인증은 auth, 발송·견적·조회·취소와 도메인 API에만 사용할 수 있습니다.
+내부 email-gateway, 공개 서명 수신거부 URL은 SDK 관리 API가 아닙니다.
+
+단건 `to`는 이메일 주소 하나입니다. `send`에는 `idempotency_key`를 반드시 지정하고
+같은 발송의 재시도에는 같은 키를 재사용하세요. 캠페인 발송에는 견적 응답의
+`quote_hash`와 `idempotency_key`가 필요합니다. SDK가 키를 임의 생성하거나
+네트워크 오류·429·5xx를 자동 재시도하지 않습니다. Bearer 401만 최대 한 번
+갱신하며, 이메일 권한 거부 403 및 Basic 인증 실패는 그대로 반환합니다.
+마케팅 발송에는 `sender_name`, `sender_address`, `sender_contact`도 필요합니다.
+첨부는 `attachments: [{name, type, content}]`이며 content는 base64입니다.
+
+응답은 서버 JSON 객체 또는 배열을 그대로 반환하며 204는 null/nil/None입니다.
+원본 EML은 바이트(PHP/Ruby는 바이트 문자열)로 반환합니다. Java/Go/.NET/Dart는
+여러 응답 형태를 담는 Object/any/object/dynamic을 사용합니다(.NET JSON은 JsonElement).
+모든 관리 요청 본문은 서버 필드명(snake_case)을 그대로 사용합니다.
